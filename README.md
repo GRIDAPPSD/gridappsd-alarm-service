@@ -1,2 +1,2 @@
-# gridappsd-alarm-service
+# gridappsd-alarms
 This service publishes alarms. 
