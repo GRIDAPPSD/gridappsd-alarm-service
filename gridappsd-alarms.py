@@ -62,7 +62,7 @@ class SimulationSubscriber(object):
     message to the simulation_input_topic with the forward and reverse difference specified.
     """
 
-    def __init__(self, simulation_id, gridappsd_obj, measurement_dict):
+    def __init__(self, simulation_id, gridappsd_obj, capacitors_dict, switches_dict, capacitors_meas_dict, switches_meas_dict):
         """ Create a ``SimulationSubscriber`` object
 
         This object is used as a subscription callback from a ``GridAPPSD``
@@ -83,6 +83,10 @@ class SimulationSubscriber(object):
         self._gapps = gridappsd_obj
         self.capacitors_dict = capacitors_dict
         self.switches_dict = switches_dict
+        self.capacitors_meas_dict = capacitors_meas_dict
+        self.switches_meas_dict = switches_meas_dict
+        self.simulation_input = {}
+        self.rcvd_input = False
         self._publish_to_topic = topics.service_output_topic('gridappsd-alarms',simulation_id)
 
     def on_message(self, headers, message):
@@ -99,74 +103,43 @@ class SimulationSubscriber(object):
             not a requirement.
         """
 
-        message = json.loads(message)
-        voltage_violation = {}
-            for meas_id in message['message']['measurements']:
-                if meas_id in self.measurement_dict:
-                    print(meas_id)
-            #self._gapps.send(self._publish_to_topic, json.dumps(voltage_violation))
+        alarms_list= []
+        if "input" in headers["destination"]:
+            for item in message["input"]['message']['forward_differences']:
+                if item["object"] in self.capacitors_dict.keys():
+                    if item["attribute"] == "ShuntCompensator.sections":
+                        #self.simulation_input[item["object"]] = item
+                        alarm = {}
+                        alarm["equipment_mrid"] = item["object"]
+                        alarm["value"] = item["value"]
+                        alarm["created_by"] = headers["GOSS_SUBJECT"]
+                        alarm["equipment_name"] = self.capacitors_dict[item["object"]]["IdentifiedObject.name"]
+                        alarms_list.append(alarm)
+                        self.rcvd_input = True
+                elif item["object"] in self.switches_dict.keys():
+                    if item["attribute"] == "Switch.open":
+                        #self.simulation_input[item["object"]] = item
+                        alarm = {}
+                        alarm["equipment_mrid"] = item["object"]
+                        alarm["value"] = item["value"]
+                        alarm["created_by"] = headers["GOSS_SUBJECT"]
+                        alarm["equipment_name"] = self.switches_dict[item["object"]]["IdentifiedObject.name"]
+                        alarms_list.append(alarm)
+                        self.rcvd_input = True
+        
+        if self.rcvd_input:
+            #print(alarms_list)
+            self._gapps.send(self._publish_to_topic, json.dumps(alarms_list))
+        self.rcvd_input = False
+        
+        #print(self._publish_to_topic)
 
+        #TODO: Varify value change from simulation output
+        #if self.rcvd_input = True and "output" in headers["destination"]:
+        #    for eq_mrid in 
 
-def get_nominal_voltage(gridappsd_obj, mrid):
-    query = """
-	PREFIX r: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-	PREFIX c: <http://iec.ch/TC57/CIM100#>
-	SELECT ?type ?name ?eqtype ?eqid ?id ?nv WHERE {
- 	VALUES ?fdrid {"%s"}
-	VALUES ?type {"PNV"}
-	?eq c:Equipment.EquipmentContainer ?fdr.
-	?fdr c:IdentifiedObject.mRID ?fdrid.
-	{ ?s r:type c:Discrete. bind ("Discrete" as ?class)}
-	UNION
-	{ ?s r:type c:Analog. bind ("Analog" as ?class)}
-	?s c:IdentifiedObject.name ?name .
-	?s c:IdentifiedObject.mRID ?id .
-	?s c:Measurement.PowerSystemResource ?eq .
-	?s c:Measurement.Terminal ?trm .
-	?s c:Measurement.measurementType ?type .
-	?trm c:IdentifiedObject.mRID ?trmid.
-	?eq c:IdentifiedObject.mRID ?eqid.
-	?eq c:IdentifiedObject.name ?eqname.
-	?eq r:type ?typeraw.
-	bind(strafter(str(?typeraw),"#") as ?eqtype)
- 	?te c:TransformerEnd.Terminal ?trm.
-	?te c:TransformerEnd.BaseVoltage ?bv.
-	?bv c:BaseVoltage.nominalVoltage ?nv.
-	} ORDER BY ?class ?type ?name""" % mrid
-    response = gridappsd_obj.query_data(query)
-    nominal_voltage_map = {}
-    for result in response['data']['results']['bindings']:
-        nominal_voltage_map[result['id']['value']] = result['nv']['value']
-    query = """
-	PREFIX r: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-	PREFIX c: <http://iec.ch/TC57/CIM100#>
-	SELECT ?type ?name ?eqtype ?eqid ?id ?nv WHERE {
-	 VALUES ?fdrid {"%s"}
-	 VALUES ?type {"PNV"}
-	 ?eq c:Equipment.EquipmentContainer ?fdr.
-	 ?fdr c:IdentifiedObject.mRID ?fdrid.
-	{ ?s r:type c:Discrete. bind ("Discrete" as ?class)}
-	  UNION
-	{ ?s r:type c:Analog. bind ("Analog" as ?class)}
-	 ?s c:IdentifiedObject.name ?name .
-	 ?s c:IdentifiedObject.mRID ?id .
-	 ?s c:Measurement.PowerSystemResource ?eq .
-	 ?s c:Measurement.Terminal ?trm .
-	 ?s c:Measurement.measurementType ?type .
-	 ?trm c:IdentifiedObject.mRID ?trmid.
-	 ?eq c:IdentifiedObject.mRID ?eqid.
-	 ?eq c:IdentifiedObject.name ?eqname.
-	 ?eq r:type ?typeraw.
-	  bind(strafter(str(?typeraw),"#") as ?eqtype)
-	 ?trm c:Terminal.ConductingEquipment ?ce.
-	 ?ce c:ConductingEquipment.BaseVoltage ?bv. 
-	  ?bv c:BaseVoltage.nominalVoltage ?nv.
-	} ORDER BY ?class ?type ?name""" % mrid
-    response = gridappsd_obj.query_data(query)
-    for result in response['data']['results']['bindings']:
-        nominal_voltage_map[result['id']['value']] = result['nv']['value']
-    return nominal_voltage_map
-
+        
+        #self._gapps.send(self._publish_to_topic, json.dumps(voltage_violation))
 
 def _main():
     parser = argparse.ArgumentParser()
@@ -193,36 +166,64 @@ def _main():
     model_mrid = sim_request["power_system_config"]["Line_name"]
     gapps = GridAPPSD(opts.simulation_id, address=utils.get_gridappsd_address(),
                       username=utils.get_gridappsd_user(), password=utils.get_gridappsd_pass())
-    measurement_dict = {}
-    
+    capacitors_dict = {}
+    switches_dict = {}
+    capacitors_meas_dict = {}
+    switches_meas_dict = {}
+
     request = {
         "modelId": model_mrid,
-        "requestType": "QUERY_OBJECT_MEASUREMENTS",
+        "requestType": "QUERY_OBJECT_DICT",
         "resultFormat": "JSON",
         "objectType": "LinearShuntCompensator"
         }
 
-    response = gapps.get_response("goss.gridappsd.process.request.powergridmodel",request)
-    for measurement in response:
-        measurement_dict[measurement["measid"]] = measurement
+    response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
+    for capacitor in response["data"]:
+        capacitors_dict[capacitor["id"]] = capacitor
 
     request = {
         "modelId": model_mrid,
-        "requestType": "QUERY_OBJECT_MEASUREMENTS",
+        "requestType": "QUERY_OBJECT_DICT",
         "resultFormat": "JSON",
-        "objectType": "Switch"
+        "objectType": "LoadBreakSwitch"
         }
 
-    response = gapps.get_response("goss.gridappsd.process.request.powergridmodel",request)
-    for measurement in response:
-        measurement_dict[measurement["measid"]] = measurement
+    response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
+    for switch in response["data"]:
+        switches_dict[switch["id"]] = switch
 
-    print(measurement_dict)
+    #print(capacitors_dict)
+    #print(switches_dict)
+    
+    request = {"modelId": model_mrid,
+               "requestType": "QUERY_OBJECT_MEASUREMENTS",
+               "resultFormat": "JSON",
+               "objectType": "LinearShuntCompensator"
+               }
+    
+    response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
+    for measurement in response["data"]:
+        capacitors_meas_dict[measurement["measid"]] = measurement
+        
+    request = {"modelId": model_mrid,
+               "requestType": "QUERY_OBJECT_MEASUREMENTS",
+               "resultFormat": "JSON",
+               "objectType": "LoadBreakSwitch"
+               }
+    
+    response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
+    for measurement in response["data"]:
+        switches_meas_dict[measurement["measid"]] = measurement
+
+    #print(capacitors_meas_dict)
+    #print(switches_meas_dict)
 
     #capacitors_dict = get_capacitor_measurements(gapps, model_mrid)
     #switches_dict = get_switch_measurements(gapps, model_mrid)
-    #subscriber = SimulationSubscriber(opts.simulation_id, gapps, capacitors_dict, switches_dict)
-    #gapps.subscribe(sim_input_topic, subscriber)
+    subscriber = SimulationSubscriber(opts.simulation_id, gapps, capacitors_dict, switches_dict, capacitors_meas_dict, switches_meas_dict)
+    gapps.subscribe(sim_input_topic, subscriber)
+    gapps.subscribe(sim_output_topic, subscriber)
     while True:
         time.sleep(0.1)
 
