@@ -224,7 +224,6 @@ def _main():
     subscriber = SimulationSubscriber(opts.simulation_id, gapps, capacitors_dict, switches_dict, capacitors_meas_dict, switches_meas_dict)
     gapps.subscribe(sim_input_topic, subscriber)
     gapps.subscribe(sim_output_topic, subscriber)
-    gapps.subscribe("/topic/goss.gridappsd.fncs.input", subscriber)
     while True:
         time.sleep(0.1)
 
