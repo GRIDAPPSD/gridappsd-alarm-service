@@ -249,11 +249,11 @@ def _main():
         #switches_dict = get_switch_measurements(gapps, model_mrid)
     except Exception as e:
         logger.log("ERROR", e , "ERROR")
-    logger.log("DEBUG","Subscribing to simulation","RUNNING")
+    #logger.log("DEBUG","Subscribing to simulation","RUNNING")
     subscriber = SimulationSubscriber(opts.simulation_id, gapps, capacitors_dict, switches_dict, capacitors_meas_dict, switches_meas_dict)
     gapps.subscribe(sim_input_topic, subscriber)
     gapps.subscribe(sim_output_topic, subscriber)
-    logger.log("DEBUG","Service Initialized","RUNNING")
+    #logger.log("DEBUG","Service Initialized","RUNNING")
     while True:
         time.sleep(0.1)
 
