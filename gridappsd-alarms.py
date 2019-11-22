@@ -44,8 +44,10 @@ Created on Jan 19, 2018
 """
 
 import argparse
+from datetime import datetime
 import json
 import logging
+import os
 import math
 import sys
 import time
@@ -140,7 +142,28 @@ class SimulationSubscriber(object):
 
         
         #self._gapps.send(self._publish_to_topic, json.dumps(voltage_violation))
-
+class Logger(object):
+    
+    def __init__(self, simulation_id, gridappsd_obj, sim_log_topic):
+        self.simulationId = simulation_id
+        self.gapps = gridappsd_obj
+        self.sim_log_topic = sim_log_topic
+        
+    
+    def log(self, logLevel, message, processStatus):
+        t_now = datetime.utcnow()
+        message = {
+            "source": os.path.basename(__file__),
+            "processId": self.simulationId,
+            "timestamp": int(time.mktime(t_now.timetuple()))*1000,
+            "processStatus": processStatus,
+            "logMessage": message,
+            "logLevel": logLevel,
+            "storeToDb": True
+            }
+        self.gapps.send(self.sim_log_topic, json.dumps(message))
+    
+    
 def _main():
     parser = argparse.ArgumentParser()
     parser.add_argument("simulation_id",
@@ -162,68 +185,75 @@ def _main():
     opts = parser.parse_args()
     sim_output_topic = simulation_output_topic(opts.simulation_id)
     sim_input_topic = simulation_input_topic(opts.simulation_id)
+    sim_log_topic = simulation_log_topic(opts.simulation_id)
     sim_request = json.loads(opts.request.replace("\'",""))
     model_mrid = sim_request["power_system_config"]["Line_name"]
     gapps = GridAPPSD(opts.simulation_id, address=utils.get_gridappsd_address(),
                       username=utils.get_gridappsd_user(), password=utils.get_gridappsd_pass())
-    capacitors_dict = {}
-    switches_dict = {}
-    capacitors_meas_dict = {}
-    switches_meas_dict = {}
-
-    request = {
-        "modelId": model_mrid,
-        "requestType": "QUERY_OBJECT_DICT",
-        "resultFormat": "JSON",
-        "objectType": "LinearShuntCompensator"
-        }
-
-    response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
-    for capacitor in response["data"]:
-        capacitors_dict[capacitor["id"]] = capacitor
-
-    request = {
-        "modelId": model_mrid,
-        "requestType": "QUERY_OBJECT_DICT",
-        "resultFormat": "JSON",
-        "objectType": "LoadBreakSwitch"
-        }
-
-    response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
-    for switch in response["data"]:
-        switches_dict[switch["id"]] = switch
-
-    #print(capacitors_dict)
-    #print(switches_dict)
+    logger = Logger(opts.simulation_id, gapps, sim_log_topic)
+    try: 
+        capacitors_dict = {}
+        switches_dict = {}
+        capacitors_meas_dict = {}
+        switches_meas_dict = {}
     
-    request = {"modelId": model_mrid,
-               "requestType": "QUERY_OBJECT_MEASUREMENTS",
-               "resultFormat": "JSON",
-               "objectType": "LinearShuntCompensator"
-               }
+        request = {
+            "modelId": model_mrid,
+            "requestType": "QUERY_OBJECT_DICT",
+            "resultFormat": "JSON",
+            "objectType": "LinearShuntCompensator"
+            }
     
-    response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
-    for measurement in response["data"]:
-        capacitors_meas_dict[measurement["measid"]] = measurement
+        response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
+        for capacitor in response["data"]:
+            capacitors_dict[capacitor["id"]] = capacitor
+    
+        request = {
+            "modelId": model_mrid,
+            "requestType": "QUERY_OBJECT_DICT",
+            "resultFormat": "JSON",
+            "objectType": "LoadBreakSwitch"
+            }
+    
+        response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
+        for switch in response["data"]:
+            switches_dict[switch["id"]] = switch
+    
+        #print(capacitors_dict)
+        #print(switches_dict)
         
-    request = {"modelId": model_mrid,
-               "requestType": "QUERY_OBJECT_MEASUREMENTS",
-               "resultFormat": "JSON",
-               "objectType": "LoadBreakSwitch"
-               }
+        request = {"modelId": model_mrid,
+                   "requestType": "QUERY_OBJECT_MEASUREMENTS",
+                   "resultFormat": "JSON",
+                   "objectType": "LinearShuntCompensator"
+                   }
+        
+        response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
+        for measurement in response["data"]:
+            capacitors_meas_dict[measurement["measid"]] = measurement
+            
+        request = {"modelId": model_mrid,
+                   "requestType": "QUERY_OBJECT_MEASUREMENTS",
+                   "resultFormat": "JSON",
+                   "objectType": "LoadBreakSwitch"
+                   }
+        
+        response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
+        for measurement in response["data"]:
+            switches_meas_dict[measurement["measid"]] = measurement
     
-    response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
-    for measurement in response["data"]:
-        switches_meas_dict[measurement["measid"]] = measurement
-
-    #print(capacitors_meas_dict)
-    #print(switches_meas_dict)
-
-    #capacitors_dict = get_capacitor_measurements(gapps, model_mrid)
-    #switches_dict = get_switch_measurements(gapps, model_mrid)
+        #print(capacitors_meas_dict)
+        #print(switches_meas_dict)
+    
+        #capacitors_dict = get_capacitor_measurements(gapps, model_mrid)
+        #switches_dict = get_switch_measurements(gapps, model_mrid)
+    except Exception as e:
+        logger.log("ERROR", e , "ERROR")
+    #logger.log("DEBUG","Subscribing to simulation","RUNNING")
     subscriber = SimulationSubscriber(opts.simulation_id, gapps, capacitors_dict, switches_dict, capacitors_meas_dict, switches_meas_dict)
     gapps.subscribe(sim_input_topic, subscriber)
     gapps.subscribe(sim_output_topic, subscriber)
+    #logger.log("DEBUG","Service Initialized","RUNNING")
     while True:
         time.sleep(0.1)
 
