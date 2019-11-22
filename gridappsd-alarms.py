@@ -44,8 +44,10 @@ Created on Jan 19, 2018
 """
 
 import argparse
+from datetime import datetime
 import json
 import logging
+import os
 import math
 import sys
 import time
@@ -148,17 +150,18 @@ class Logger(object):
         self.sim_log_topic = sim_log_topic
         
     
-    def log(logLevel, message, processStatus):
+    def log(self, logLevel, message, processStatus):
+        t_now = datetime.utcnow()
         message = {
             "source": os.path.basename(__file__),
             "processId": self.simulationId,
-            "timestamp": int(time.mktime(t.now.timetuple()))*1000,
+            "timestamp": int(time.mktime(t_now.timetuple()))*1000,
             "processStatus": processStatus,
             "logMessage": message,
             "logLevel": logLevel,
             "storeToDb": True
             }
-        self.gapps.send(sim_log_topic, json.dumps(messge))
+        self.gapps.send(self.sim_log_topic, json.dumps(message))
     
     
 def _main():
@@ -182,7 +185,7 @@ def _main():
     opts = parser.parse_args()
     sim_output_topic = simulation_output_topic(opts.simulation_id)
     sim_input_topic = simulation_input_topic(opts.simulation_id)
-    sim_log_topic = simu_log_topic(opts.simulation_id)
+    sim_log_topic = simulation_log_topic(opts.simulation_id)
     sim_request = json.loads(opts.request.replace("\'",""))
     model_mrid = sim_request["power_system_config"]["Line_name"]
     gapps = GridAPPSD(opts.simulation_id, address=utils.get_gridappsd_address(),
@@ -246,9 +249,11 @@ def _main():
         #switches_dict = get_switch_measurements(gapps, model_mrid)
     except Exception as e:
         logger.log("ERROR", e , "ERROR")
+    logger.log("DEBUG","Subscribing to simulation","RUNNING")
     subscriber = SimulationSubscriber(opts.simulation_id, gapps, capacitors_dict, switches_dict, capacitors_meas_dict, switches_meas_dict)
     gapps.subscribe(sim_input_topic, subscriber)
     gapps.subscribe(sim_output_topic, subscriber)
+    logger.log("DEBUG","Service Initialized","RUNNING")
     while True:
         time.sleep(0.1)
 
