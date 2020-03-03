@@ -64,7 +64,7 @@ class SimulationSubscriber(object):
     message to the simulation_input_topic with the forward and reverse difference specified.
     """
 
-    def __init__(self, simulation_id, gridappsd_obj, capacitors_dict, switches_dict, capacitors_meas_dict, switches_meas_dict):
+    def __init__(self, simulation_id, gridappsd_obj, equipment_dict, measurement_dict,meas_eq_map,eq_phases_map):
         """ Create a ``SimulationSubscriber`` object
 
         This object is used as a subscription callback from a ``GridAPPSD``
@@ -83,13 +83,19 @@ class SimulationSubscriber(object):
             A list of capacitors mrids to turn on/off
         """
         self._gapps = gridappsd_obj
-        self.capacitors_dict = capacitors_dict
-        self.switches_dict = switches_dict
-        self.capacitors_meas_dict = capacitors_meas_dict
-        self.switches_meas_dict = switches_meas_dict
-        self.simulation_input = {}
-        self.rcvd_input = False
         self._publish_to_topic = topics.service_output_topic('gridappsd-alarms',simulation_id)
+        
+        self.equipment_dict = equipment_dict
+        self.measurement_dict = measurement_dict
+        self.meas_eq_map = meas_eq_map
+        self.eq_phases_map = eq_phases_map
+        
+        self.simulation_input = {}
+        self.measurement_value = {}
+        self.rcvd_input = False
+        self.input_map = {}
+        
+        
 
     def on_message(self, headers, message):
         """ Handle incoming messages on the simulation_output_topic for the simulation_id
@@ -105,43 +111,40 @@ class SimulationSubscriber(object):
             not a requirement.
         """
 
-        alarms_list= []
+        #print(message)
         if "input" in headers["destination"]:
             for item in message["input"]['message']['forward_differences']:
-                if item["object"] in self.capacitors_dict.keys():
-                    if item["attribute"] == "ShuntCompensator.sections":
-                        #self.simulation_input[item["object"]] = item
-                        alarm = {}
-                        alarm["equipment_mrid"] = item["object"]
-                        alarm["value"] = item["value"]
-                        alarm["created_by"] = headers["GOSS_SUBJECT"]
-                        alarm["equipment_name"] = self.capacitors_dict[item["object"]]["IdentifiedObject.name"]
-                        alarms_list.append(alarm)
-                        self.rcvd_input = True
-                elif item["object"] in self.switches_dict.keys():
-                    if item["attribute"] == "Switch.open":
-                        #self.simulation_input[item["object"]] = item
-                        alarm = {}
-                        alarm["equipment_mrid"] = item["object"]
-                        alarm["value"] = item["value"]
-                        alarm["created_by"] = headers["GOSS_SUBJECT"]
-                        alarm["equipment_name"] = self.switches_dict[item["object"]]["IdentifiedObject.name"]
-                        alarms_list.append(alarm)
-                        self.rcvd_input = True
+                if item["object"] in self.equipment_dict.keys():
+                    if item["attribute"] in ["ShuntCompensator.sections","Switch.open"]:
+                        input = {}
+                        input["equipment_mrid"] = item["object"]
+                        input["value"] = 'Open' if item["value"] == 1 else 'Close'
+                        input["created_by"] = headers["GOSS_SUBJECT"]
+                        input["equipment_name"] = self.equipment_dict[item["object"]]["IdentifiedObject.name"]
+                        input["phases"] = self.eq_phases_map[item["object"]]
+                        self.input_map[item["object"]] = input
+                        #print("Received input: "+str(self.input_map))
+                        
+        alarm_list = []   
+        if "output" in headers["destination"]:
+            for measurement in self.measurement_dict:
+                if measurement not in self.measurement_value:
+                    self.measurement_value[measurement] = message["message"]["measurements"][measurement]['value']
+                else:
+                    if self.measurement_value[measurement] != message["message"]['measurements'][measurement]['value']:
+                        #print("Value changed for +"+measurement+" changed from "+str(self.measurement_value[measurement])+" to "+str(message["message"]['measurements'][measurement]['value']))
+                        self.measurement_value[measurement] = message["message"]['measurements'][measurement]['value']
+                        equipment_mrid = self.meas_eq_map[measurement]
+                        if equipment_mrid in self.input_map:
+                            alarm = self.input_map[equipment_mrid]
+                            del self.input_map[equipment_mrid]
+                            alarm_list.append(alarm)
         
-        if self.rcvd_input:
-            #print(alarms_list)
-            self._gapps.send(self._publish_to_topic, json.dumps(alarms_list))
-        self.rcvd_input = False
-        
-        #print(self._publish_to_topic)
+        if len(alarm_list) != 0:
+            #print("alarm_list::  "+str(alarm_list))
+            self._gapps.send(self._publish_to_topic, json.dumps(alarm_list))
+                        
 
-        #TODO: Varify value change from simulation output
-        #if self.rcvd_input = True and "output" in headers["destination"]:
-        #    for eq_mrid in 
-
-        
-        #self._gapps.send(self._publish_to_topic, json.dumps(voltage_violation))
 class Logger(object):
     
     def __init__(self, simulation_id, gridappsd_obj, sim_log_topic):
@@ -192,10 +195,13 @@ def _main():
                       username=utils.get_gridappsd_user(), password=utils.get_gridappsd_pass())
     logger = Logger(opts.simulation_id, gapps, sim_log_topic)
     try: 
-        capacitors_dict = {}
-        switches_dict = {}
-        capacitors_meas_dict = {}
-        switches_meas_dict = {}
+        #capacitors_dict = {}
+        #switches_dict = {}
+        #capacitors_meas_dict = {}
+        #switches_meas_dict = {}
+        
+        equipment_dict = {}
+        measurement_dict = {}
     
         request = {
             "modelId": model_mrid,
@@ -204,9 +210,9 @@ def _main():
             "objectType": "LinearShuntCompensator"
             }
     
-        response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
+        response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request,timeout=15)
         for capacitor in response["data"]:
-            capacitors_dict[capacitor["id"]] = capacitor
+            equipment_dict[capacitor["id"]] = capacitor
     
         request = {
             "modelId": model_mrid,
@@ -215,9 +221,9 @@ def _main():
             "objectType": "LoadBreakSwitch"
             }
     
-        response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
+        response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request,timeout=15)
         for switch in response["data"]:
-            switches_dict[switch["id"]] = switch
+            equipment_dict[switch["id"]] = switch
     
         #print(capacitors_dict)
         #print(switches_dict)
@@ -228,9 +234,10 @@ def _main():
                    "objectType": "LinearShuntCompensator"
                    }
         
-        response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
+        response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request,timeout=15)
         for measurement in response["data"]:
-            capacitors_meas_dict[measurement["measid"]] = measurement
+            if measurement["type"] == "Pos":
+                measurement_dict[measurement["measid"]] = measurement
             
         request = {"modelId": model_mrid,
                    "requestType": "QUERY_OBJECT_MEASUREMENTS",
@@ -238,19 +245,32 @@ def _main():
                    "objectType": "LoadBreakSwitch"
                    }
         
-        response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request)
+        response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request,timeout=15)
         for measurement in response["data"]:
-            switches_meas_dict[measurement["measid"]] = measurement
+            if measurement["type"] == "Pos":
+                measurement_dict[measurement["measid"]] = measurement
     
         #print(capacitors_meas_dict)
         #print(switches_meas_dict)
+        meas_eq_map = {}
+        eq_phases_map = {}
+        for measurement in measurement_dict:
+            for equipment in equipment_dict:
+                if equipment == measurement_dict[measurement]['eqid']:
+                    if equipment in eq_phases_map:
+                        eq_phases_map[equipment] = eq_phases_map[equipment] + measurement_dict[measurement]['phases']
+                    else:
+                        eq_phases_map[equipment] = measurement_dict[measurement]['phases']
+                    meas_eq_map[measurement] = equipment
+        
+        #print(meas_eq_map)
     
         #capacitors_dict = get_capacitor_measurements(gapps, model_mrid)
         #switches_dict = get_switch_measurements(gapps, model_mrid)
     except Exception as e:
         logger.log("ERROR", e , "ERROR")
     #logger.log("DEBUG","Subscribing to simulation","RUNNING")
-    subscriber = SimulationSubscriber(opts.simulation_id, gapps, capacitors_dict, switches_dict, capacitors_meas_dict, switches_meas_dict)
+    subscriber = SimulationSubscriber(opts.simulation_id, gapps, equipment_dict, measurement_dict,meas_eq_map, eq_phases_map)
     gapps.subscribe(sim_input_topic, subscriber)
     gapps.subscribe(sim_output_topic, subscriber)
     #logger.log("DEBUG","Service Initialized","RUNNING")
