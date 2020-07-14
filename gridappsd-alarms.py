@@ -138,6 +138,7 @@ class SimulationSubscriber(object):
                         if equipment_mrid in self.input_map:
                             alarm = self.input_map[equipment_mrid]
                             del self.input_map[equipment_mrid]
+                            alarm["timestamp"] = message["message"]["timestamp"]	
                             alarm_list.append(alarm)
         
         if len(alarm_list) != 0:
