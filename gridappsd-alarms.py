@@ -118,7 +118,10 @@ class SimulationSubscriber(object):
                     if item["attribute"] in ["ShuntCompensator.sections","Switch.open"]:
                         input = {}
                         input["equipment_mrid"] = item["object"]
-                        input["value"] = 'Open' if item["value"] == 1 else 'Close'
+                        if item["attribute"] == "Switch.open":
+                            input["value"] = 'Open' if item["value"] == 1 else 'Close'
+                        elif item["attribute"] == "ShuntCompensator.sections":
+                            input["value"] = 'Open' if item["value"] == 0 else 'Close'
                         input["created_by"] = headers["GOSS_SUBJECT"]
                         input["equipment_name"] = self.equipment_dict[item["object"]]["IdentifiedObject.name"]
                         input["phases"] = self.eq_phases_map[item["object"]]
