@@ -195,8 +195,7 @@ def _main():
     sim_log_topic = simulation_log_topic(opts.simulation_id)
     sim_request = json.loads(opts.request.replace("\'",""))
     model_mrid = sim_request["power_system_config"]["Line_name"]
-    gapps = GridAPPSD(opts.simulation_id, address=utils.get_gridappsd_address(),
-                      username=utils.get_gridappsd_user(), password=utils.get_gridappsd_pass())
+    gapps = GridAPPSD(opts.simulation_id)
     logger = Logger(opts.simulation_id, gapps, sim_log_topic)
     try: 
         #capacitors_dict = {}
