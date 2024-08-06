@@ -214,6 +214,8 @@ def _main():
             }
     
         response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request,timeout=15)
+        if type(response['data'] == str):
+            response['data'] = json.loads(response['data'])
         for capacitor in response["data"]:
             equipment_dict[capacitor["id"]] = capacitor
     
@@ -225,6 +227,8 @@ def _main():
             }
     
         response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request,timeout=15)
+        if type(response['data'] == str):
+            response['data'] = json.loads(response['data'])
         for switch in response["data"]:
             equipment_dict[switch["id"]] = switch
     
@@ -238,6 +242,8 @@ def _main():
                    }
         
         response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request,timeout=15)
+        if type(response['data'] == str):
+            response['data'] = json.loads(response['data'])
         for measurement in response["data"]:
             if measurement["type"] == "Pos":
                 measurement_dict[measurement["measid"]] = measurement
@@ -249,6 +255,8 @@ def _main():
                    }
         
         response = gapps.get_response("goss.gridappsd.process.request.data.powergridmodel",request,timeout=15)
+        if type(response['data'] == str):
+            response['data'] = json.loads(response['data'])
         for measurement in response["data"]:
             if measurement["type"] == "Pos":
                 measurement_dict[measurement["measid"]] = measurement
