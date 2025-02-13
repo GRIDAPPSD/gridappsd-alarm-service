@@ -114,18 +114,19 @@ class SimulationSubscriber(object):
         #print(message)
         if "input" in headers["destination"]:
             for item in message["input"]['message']['forward_differences']:
-                if item["object"] in self.equipment_dict.keys():
+                object_id = item["object"].lower()
+                if object_id in self.equipment_dict.keys():
                     if item["attribute"] in ["ShuntCompensator.sections","Switch.open"]:
                         input = {}
-                        input["equipment_mrid"] = item["object"]
+                        input["equipment_mrid"] = object_id
                         if item["attribute"] == "Switch.open":
                             input["value"] = 'Open' if item["value"] == 1 else 'Close'
                         elif item["attribute"] == "ShuntCompensator.sections":
                             input["value"] = 'Open' if item["value"] == 0 else 'Close'
                         input["created_by"] = headers["GOSS_SUBJECT"]
-                        input["equipment_name"] = self.equipment_dict[item["object"]]["IdentifiedObject.name"]
-                        input["phases"] = self.eq_phases_map[item["object"]]
-                        self.input_map[item["object"]] = input
+                        input["equipment_name"] = self.equipment_dict[object_id]["IdentifiedObject.name"]
+                        input["phases"] = self.eq_phases_map[object_id]
+                        self.input_map[object_id] = input
                         #print("Received input: "+str(self.input_map))
                         
         alarm_list = []   
@@ -137,7 +138,7 @@ class SimulationSubscriber(object):
                     if self.measurement_value[measurement] != message["message"]['measurements'][measurement]['value']:
                         #print("Value changed for +"+measurement+" changed from "+str(self.measurement_value[measurement])+" to "+str(message["message"]['measurements'][measurement]['value']))
                         self.measurement_value[measurement] = message["message"]['measurements'][measurement]['value']
-                        equipment_mrid = self.meas_eq_map[measurement]
+                        equipment_mrid = self.meas_eq_map[measurement].lower()
                         if equipment_mrid in self.input_map:
                             alarm = self.input_map[equipment_mrid]
                             del self.input_map[equipment_mrid]
@@ -267,12 +268,13 @@ def _main():
         eq_phases_map = {}
         for measurement in measurement_dict:
             for equipment in equipment_dict:
-                if equipment == measurement_dict[measurement]['eqid']:
-                    if equipment in eq_phases_map:
-                        eq_phases_map[equipment] = eq_phases_map[equipment] + measurement_dict[measurement]['phases']
+                equipment_id = equipment_dict[equipment]['IdentifiedObject.mRID']
+                if equipment_id == measurement_dict[measurement]['eqid']:
+                    if equipment_id in eq_phases_map:
+                        eq_phases_map[equipment] = eq_phases_map[equipment + measurement_dict[measurement]['phases']]
                     else:
                         eq_phases_map[equipment] = measurement_dict[measurement]['phases']
-                    meas_eq_map[measurement] = equipment
+                    meas_eq_map[measurement] = equipment_id
         
         #print(meas_eq_map)
     
